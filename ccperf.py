@@ -81,7 +81,7 @@ def gcc_preprocess_file(cmd, dir):
 
             result = { 'bytes': size, 'lines': num_lines, 'header_files': header_files, 'time': t2 - t1 }
         except:
-            print('*** Preprocessing the source file failed.')
+            print('*** Preprocessing the source file failed.', file=sys.stderr)
             result = { 'bytes': 0, 'lines': 0, 'header_files': [], 'time': 0.0 }
 
     finally:
@@ -106,7 +106,7 @@ def is_system_header(file_name):
     return file_name.startswith('/usr/') or file_name.startswith('/System/')
 
 def collect_metrics(dir, file, command):
-    print(file)
+    print(file, file=sys.stderr)
 
     src_file = os.path.abspath(os.path.join(dir, file))
 
@@ -140,7 +140,7 @@ def record(num_jobs):
     # Check if we can find a compile database.
     compile_db_file = os.path.join(build_dir, 'compile_commands.json')
     if (not os.path.isfile(compile_db_file)):
-        print("Could not find compile_commands.json in the current directory.")
+        print("Could not find compile_commands.json in the current directory.", file=sys.stderr)
         sys.exit()
 
     # Read the compile database.
@@ -158,16 +158,44 @@ def record(num_jobs):
             try:
                 record_db.append(future.result())
             except Exception as exc:
-                print('*** Exception: %s' % (exc))
+                print('*** Exception: %s' % (exc), file=sys.stderr)
 
     # Write information database.
     record_db_file = os.path.join(build_dir, '.ccperf')
     with open(record_db_file, 'w') as file:
         json.dump(record_db, file, sort_keys=True, indent=2, separators=(',', ': '))
 
-def report():
-    # TODO(m): Implement me!
-    return
+def load_info_db():
+    build_dir = os.getcwd()
+    info_db_file = os.path.join(build_dir, '.ccperf')
+    if (not os.path.isfile(info_db_file)):
+        print("Could not find .ccperf in the current directory. Please use --record.", file=sys.stderr)
+        sys.exit()
+
+    # Read the information database.
+    with open(info_db_file, 'r') as file:
+        info_db = json.loads(file.read())
+
+    return info_db
+
+
+def generate_csv():
+    info_db = load_info_db()
+
+    # Dump the information database as CSV.
+    # TODO(m): Implement more sophisticated report generators.
+    print('File\tHeaders (all)\tSystem headers\tBytes\tLines\tBytes preproc.\tLines preproc.\tTime preproc.')
+    for item in info_db:
+        print('%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (
+            item['file'],
+            item['headers_all'],
+            item['headers_sys'],
+            item['bytes'],
+            item['lines'],
+            item['bytes_pp'],
+            item['lines_pp'],
+            item['time_pp']))
+
 
 def num_hw_threads():
     try:
@@ -178,21 +206,17 @@ def num_hw_threads():
 
 def main():
     num_jobs = num_hw_threads()
-    parser = argparse.ArgumentParser(description='Generate IDE projects from Meson.')
+    parser = argparse.ArgumentParser(description='Collect and present build performance metrics for a C/C++ project.')
     parser.add_argument('--record', action='store_true',
                         help='record performance metrics')
-    parser.add_argument('--report', action='store_true',
-                        help='report performance metrics')
     parser.add_argument('-j', metavar='N', type=int, dest='num_jobs', default=num_jobs,
                         help='number of parallel jobs (default: %d)' % num_jobs)
     args = parser.parse_args()
 
     if args.record:
         record(args.num_jobs)
-    elif args.report:
-        report()
-    else:
-        print("Please specify a mode of operation.")
+
+    generate_csv()
 
 if __name__ == "__main__":
     main()
