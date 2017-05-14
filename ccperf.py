@@ -9,6 +9,15 @@ import shlex
 import sys
 import subprocess
 import tempfile
+import time
+
+
+def get_time():
+    try:
+        return time.perf_counter()
+    except:
+        return time.clock()
+
 
 def count_lines(file_name):
     count = 0
@@ -46,7 +55,9 @@ def gcc_preprocess_file(cmd, dir):
         opts.append('-H')
 
         try:
+            t1 = get_time()
             res = subprocess.check_output(opts, stderr=subprocess.STDOUT, cwd=dir)
+            t2 = get_time()
             try:
                 res = res.decode()
             except AttributeError:
@@ -68,10 +79,10 @@ def gcc_preprocess_file(cmd, dir):
             size = os.stat(cpp_file).st_size
             num_lines = count_lines(cpp_file)
 
-            result = { 'bytes': size, 'lines': num_lines, 'header_files': header_files }
+            result = { 'bytes': size, 'lines': num_lines, 'header_files': header_files, 'time': t2 - t1 }
         except:
             print('*** Preprocessing the source file failed.')
-            result = { 'bytes': 0, 'lines': 0, 'header_files': [] }
+            result = { 'bytes': 0, 'lines': 0, 'header_files': [], 'time': 0.0 }
 
     finally:
         # We're done with the temporary file.
@@ -119,7 +130,8 @@ def collect_metrics(dir, file, command):
             'bytes': src_info['bytes'],
             'bytes_pp': pp_info['bytes'],
             'lines': src_info['lines'],
-            'lines_pp': pp_info['lines']}
+            'lines_pp': pp_info['lines'],
+            'time_pp': pp_info['time']}
 
 
 def record(num_jobs):
