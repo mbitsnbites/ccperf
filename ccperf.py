@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 import argparse
+import concurrent.futures
 import json
+import multiprocessing
 import os
 import re
 import shlex
 import sys
 import subprocess
 import tempfile
-
 
 def count_lines(file_name):
     count = 0
@@ -93,8 +94,35 @@ def is_system_header(file_name):
     # TODO(m): Better heuristics.
     return file_name.startswith('/usr/') or file_name.startswith('/System/')
 
+def collect_metrics(dir, file, command):
+    print(file)
 
-def record():
+    src_file = os.path.abspath(os.path.join(dir, file))
+
+    # Get the original size for this file.
+    src_info = get_original_size(src_file)
+
+    # Run the preprocessor to collect size metrics.
+    pp_info = preprocess_file(command, dir)
+
+    # Count header files for this source file.
+    headers_all = 0
+    headers_sys = 0
+    for header_file in pp_info['header_files']:
+        headers_all += 1
+        if is_system_header(header_file):
+            headers_sys += 1
+
+    return {'file': src_file,
+            'headers_all': headers_all,
+            'headers_sys': headers_sys,
+            'bytes': src_info['bytes'],
+            'bytes_pp': pp_info['bytes'],
+            'lines': src_info['lines'],
+            'lines_pp': pp_info['lines']}
+
+
+def record(num_jobs):
     build_dir = os.getcwd()
 
     # Check if we can find a compile database.
@@ -107,30 +135,18 @@ def record():
     with open(compile_db_file, 'r') as file:
         compile_db = json.loads(file.read())
 
-    # Build information database.
-    record_db = {}
-    for item in compile_db:
-        print(item['file'])
+    # Use a thread pool to build the information database in parallel.
+    record_db = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_jobs) as executor:
+        results = []
+        for item in compile_db:
+            results.append(executor.submit(collect_metrics, item['directory'], item['file'], item['command']))
 
-        dir = item['directory']
-        src_file = os.path.abspath(os.path.join(dir, item['file']))
-
-        # Get the original size for this file.
-        size = get_original_size(src_file)
-
-        # Run the preprocessor to collect size metrics.
-        size_pp = preprocess_file(item['command'], dir)
-
-        # Count header files for this source file.
-        headers_all = 0
-        headers_sys = 0
-        for header_file in size_pp['header_files']:
-            headers_all += 1
-            if is_system_header(header_file):
-                headers_sys += 1
-
-        record_db[src_file] = {'headers_all': headers_all, 'headers_sys': headers_sys, 'size': size['bytes'],
-                               'size_pp': size_pp['bytes'], 'lines': size['lines'], 'lines_pp': size_pp['lines']}
+        for future in results:
+            try:
+                record_db.append(future.result())
+            except Exception as exc:
+                print('*** Exception: %s' % (exc))
 
     # Write information database.
     record_db_file = os.path.join(build_dir, '.ccperf')
@@ -141,16 +157,26 @@ def report():
     # TODO(m): Implement me!
     return
 
+def num_hw_threads():
+    try:
+        cpu_count = multiprocessing.cpu_count()
+    except:
+        cpu_count = 8
+    return int(cpu_count * 1.1 + 0.5)
+
 def main():
+    num_jobs = num_hw_threads()
     parser = argparse.ArgumentParser(description='Generate IDE projects from Meson.')
     parser.add_argument('--record', action='store_true',
                         help='record performance metrics')
     parser.add_argument('--report', action='store_true',
                         help='report performance metrics')
+    parser.add_argument('-j', metavar='N', type=int, dest='num_jobs', default=num_jobs,
+                        help='number of parallel jobs (default: %d)' % num_jobs)
     args = parser.parse_args()
 
     if args.record:
-        record()
+        record(args.num_jobs)
     elif args.report:
         report()
     else:
