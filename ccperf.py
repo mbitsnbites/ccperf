@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import json
 import os
@@ -46,6 +46,10 @@ def gcc_preprocess_file(cmd, dir):
 
         try:
             res = subprocess.check_output(opts, stderr=subprocess.STDOUT, cwd=dir)
+            try:
+                res = res.decode()
+            except AttributeError:
+                pass
 
             # Get a list of all included header files.
             header_files = []
@@ -65,7 +69,7 @@ def gcc_preprocess_file(cmd, dir):
 
             result = { 'bytes': size, 'lines': num_lines, 'header_files': header_files }
         except:
-            print '*** Preprocessing the source file failed.'
+            print('*** Preprocessing the source file failed.')
             result = { 'bytes': 0, 'lines': 0, 'header_files': [] }
 
     finally:
@@ -96,7 +100,7 @@ def record():
     # Check if we can find a compile database.
     compile_db_file = os.path.join(build_dir, 'compile_commands.json')
     if (not os.path.isfile(compile_db_file)):
-        print "Could not find compile_commands.json in the current directory."
+        print("Could not find compile_commands.json in the current directory.")
         sys.exit()
 
     # Read the compile database.
@@ -106,7 +110,7 @@ def record():
     # Build information database.
     record_db = {}
     for item in compile_db:
-        print item['file']
+        print(item['file'])
 
         dir = item['directory']
         src_file = os.path.abspath(os.path.join(dir, item['file']))
@@ -150,7 +154,7 @@ def main():
     elif args.report:
         report()
     else:
-        print "Please specify a mode of operation."
+        print("Please specify a mode of operation.")
 
 if __name__ == "__main__":
     main()
