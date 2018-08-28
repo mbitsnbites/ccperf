@@ -27,6 +27,18 @@ def count_lines(file_name):
     return count
 
 
+def is_gcc_command(cmd):
+    try:
+        program = os.path.basename(shlex.split(cmd)[0]).lower()
+        return ('gcc' in program) or ('g++' in program) or ('clang' in program) or ('clang++' in program)
+    except:
+        return False
+
+
+def dummy_preprocess_file(cmd, dir):
+    return { 'bytes': 0, 'lines': 0, 'header_files': [], 'time': 0.0 }
+
+
 def gcc_preprocess_file(cmd, dir):
     # Create a temporary file.
     temp_fd, cpp_file = tempfile.mkstemp('.i', 'ccperf')
@@ -82,7 +94,7 @@ def gcc_preprocess_file(cmd, dir):
             result = { 'bytes': size, 'lines': num_lines, 'header_files': header_files, 'time': t2 - t1 }
         except:
             print('*** Preprocessing the source file failed.', file=sys.stderr)
-            result = { 'bytes': 0, 'lines': 0, 'header_files': [], 'time': 0.0 }
+            result = dummy_preprocess_file()
 
     finally:
         # We're done with the temporary file.
@@ -92,9 +104,12 @@ def gcc_preprocess_file(cmd, dir):
 
     return result
 
+
 def preprocess_file(cmd, dir):
-    # TODO(m): Here we assume that we're running a compiler that understands GCC options.
-    return gcc_preprocess_file(cmd, dir)
+    if is_gcc_command(cmd):
+        return gcc_preprocess_file(cmd, dir)
+    else:
+        return dummy_preprocess_file(cmd, dir)
 
 
 def get_original_size(src_file):
