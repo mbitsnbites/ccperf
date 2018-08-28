@@ -116,11 +116,28 @@ def get_original_size(src_file):
     return { 'bytes': os.stat(src_file).st_size, 'lines': count_lines(src_file) }
 
 
+def run_cmd(cmd, dir):
+    t1 = get_time()
+    try:
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT, cwd=dir, shell=True)
+    except subprocess.CalledProcessError as e:
+        print('*** Running the command failed:\n{}'.format(e.stdout.decode()), file=sys.stderr)
+    except:
+        print('*** Running the command failed.', file=sys.stderr)
+    t2 = get_time()
+    return { 'time': t2 - t1 }
+
+
+def dummy_run_cmd(cmd, dir):
+    return { 'time': 0.0 }
+
+
 def is_system_header(file_name):
     # TODO(m): Better heuristics.
     return file_name.startswith('/usr/') or file_name.startswith('/System/')
 
-def collect_metrics(dir, file, command):
+
+def collect_metrics(dir, file, command, do_run_command=False):
     print(file, file=sys.stderr)
 
     src_file = os.path.abspath(os.path.join(dir, file))
@@ -130,6 +147,12 @@ def collect_metrics(dir, file, command):
 
     # Run the preprocessor to collect size metrics.
     pp_info = preprocess_file(command, dir)
+
+    # Run the command to collect performance metrics.
+    if do_run_command:
+        run_info = run_cmd(command, dir)
+    else:
+        run_info = dummy_run_cmd(command, dir)
 
     # Count header files for this source file.
     headers_all = 0
@@ -146,10 +169,11 @@ def collect_metrics(dir, file, command):
             'bytes_pp': pp_info['bytes'],
             'lines': src_info['lines'],
             'lines_pp': pp_info['lines'],
-            'time_pp': pp_info['time']}
+            'time_pp': pp_info['time'],
+            'time_run': run_info['time']}
 
 
-def record(num_jobs):
+def record(num_jobs, do_run_command=False):
     build_dir = os.getcwd()
 
     # Check if we can find a compile database.
@@ -167,7 +191,7 @@ def record(num_jobs):
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_jobs) as executor:
         results = []
         for item in compile_db:
-            results.append(executor.submit(collect_metrics, item['directory'], item['file'], item['command']))
+            results.append(executor.submit(collect_metrics, item['directory'], item['file'], item['command'], do_run_command))
 
         for future in results:
             try:
@@ -199,9 +223,9 @@ def generate_csv():
 
     # Dump the information database as CSV.
     # TODO(m): Implement more sophisticated report generators.
-    print('File\tHeaders (all)\tSystem headers\tBytes\tLines\tBytes preproc.\tLines preproc.\tTime preproc.')
+    print('File\tHeaders (all)\tSystem headers\tBytes\tLines\tBytes preproc.\tLines preproc.\tTime preproc.\tTime run')
     for item in info_db:
-        print('%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (
+        print('%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' % (
             item['file'],
             item['headers_all'],
             item['headers_sys'],
@@ -209,7 +233,8 @@ def generate_csv():
             item['lines'],
             item['bytes_pp'],
             item['lines_pp'],
-            item['time_pp']))
+            item['time_pp'],
+            item['time_run']))
 
 
 def num_hw_threads():
@@ -226,10 +251,12 @@ def main():
                         help='record performance metrics')
     parser.add_argument('-j', metavar='N', type=int, dest='num_jobs', default=num_jobs,
                         help='number of parallel jobs (default: %d)' % num_jobs)
+    parser.add_argument('--no-run', action='store_true',
+                        help='do not run the actual compile commands')
     args = parser.parse_args()
 
     if args.record:
-        record(args.num_jobs)
+        record(args.num_jobs, not args.no_run)
 
     generate_csv()
 
